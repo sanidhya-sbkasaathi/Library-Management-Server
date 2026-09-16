@@ -512,8 +512,8 @@ export const initialAuditEvents: AuditEvent[] = [
 ];
 
 export const initialAdminUsers: AdminUser[] = [
-  { id: 'adm-1', name: 'Trivendra Shukla', email: 'trivendra@yourcompany.com', role: 'Super Admin', status: 'ACTIVE', lastActive: 'Now' },
-  { id: 'adm-2', name: 'Sanidhya Sharma', email: 'sanidhya@yourcompany.com', role: 'Super Admin', status: 'ACTIVE', lastActive: '10 min ago' },
-  { id: 'adm-3', name: 'Support Operations', email: 'support@yourcompany.com', role: 'Support Admin', status: 'ACTIVE', lastActive: '1 hour ago' },
-  { id: 'adm-4', name: 'Finance Controller', email: 'billing@yourcompany.com', role: 'Finance Admin', status: 'ACTIVE', lastActive: 'Yesterday' },
+  { id: 'adm-0', name: 'Super Admin', email: 'sbkasaathilibrary@gmail.com', role: 'Super Admin', status: 'ACTIVE', lastActive: 'Now' },
+  { id: 'adm-1', name: 'Sanidhya Sharma', email: 'sanidhya@sbkasaathi.in', role: 'Super Admin', status: 'ACTIVE', lastActive: '10 min ago' },
+  { id: 'adm-2', name: 'Support Operations', email: 'support@sbkasaathi.in', role: 'Support Admin', status: 'ACTIVE', lastActive: '1 hour ago' },
+  { id: 'adm-3', name: 'Billing Controller', email: 'billing@sbkasaathi.in', role: 'Finance Admin', status: 'ACTIVE', lastActive: 'Yesterday' },
 ];

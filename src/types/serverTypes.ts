@@ -107,7 +107,7 @@ export interface AdminUser {
   id: string;
   name: string;
   email: string;
-  role: 'Super Admin' | 'Support Admin' | 'Operations Admin' | 'Finance Admin';
+  role: 'Super Admin' | 'Support Admin' | 'Operations Admin' | 'Finance Admin' | 'Auditor' | 'Compliance Lead' | string;
   status: 'ACTIVE' | 'INACTIVE';
   lastActive: string;
 }

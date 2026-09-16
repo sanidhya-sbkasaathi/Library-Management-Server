@@ -11,6 +11,7 @@ import { RolesView } from './components/RolesView';
 import { AuditView } from './components/AuditView';
 import { SettingsView } from './components/SettingsView';
 import { CreateOrgModal } from './components/CreateOrgModal';
+import { LoginScreen } from './components/LoginScreen';
 
 export function App() {
   const [, setTick] = useState(0);
@@ -24,6 +25,11 @@ export function App() {
     });
     return unsub;
   }, []);
+
+  // Show authentication screen if user is not logged in
+  if (!serverStore.isAuthenticated) {
+    return <LoginScreen />;
+  }
 
   const currentTab = serverStore.activeTab;
 

@@ -70,8 +70,8 @@ export const BackendView: React.FC = () => {
               <h3 className="font-bold text-sm text-slate-900 dark:text-white">
                 Central Multi-Tenant Cloud Project
               </h3>
-              <p className="text-xs text-slate-500 font-mono">
-                https://jsvevzzupajrgzxsmmyr.supabase.co
+              <p className="text-xs text-slate-500 font-mono truncate max-w-xs sm:max-w-md">
+                {serverStore.getSupabaseConfig().url}
               </p>
             </div>
           </div>

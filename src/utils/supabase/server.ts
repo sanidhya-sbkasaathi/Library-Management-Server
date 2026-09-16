@@ -1,21 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
-
-const supabaseUrl =
-  (typeof window !== 'undefined' && (window as any).__ENV?.NEXT_PUBLIC_SUPABASE_URL) ||
-  (import.meta as any).env?.VITE_SUPABASE_URL ||
-  (import.meta as any).env?.NEXT_PUBLIC_SUPABASE_URL ||
-  "https://jsvevzzupajrgzxsmmyr.supabase.co";
-
-const supabaseKey =
-  (typeof window !== 'undefined' && (window as any).__ENV?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) ||
-  (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  (import.meta as any).env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  "sb_publishable_xh7iUtUdJYdu4xjzPIVyWg_Wr1_76NR";
+import { getSupabaseConfig } from "./client";
 
 export const createClient = (cookieStore?: any) => {
+  const { url, key } = getSupabaseConfig();
   return createServerClient(
-    supabaseUrl,
-    supabaseKey,
+    url || "https://placeholder-project.supabase.co",
+    key || "placeholder-anon-key",
     {
       cookies: {
         getAll() {
@@ -29,7 +19,7 @@ export const createClient = (cookieStore?: any) => {
               );
             }
           } catch {
-            // Can be ignored if handled in middleware
+            // Server Component ignore
           }
         },
       },

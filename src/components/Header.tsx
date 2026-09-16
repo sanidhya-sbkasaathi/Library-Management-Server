@@ -119,56 +119,66 @@ export const Header: React.FC<HeaderProps> = ({ onSearchChange, searchQuery, onT
           </button>
         </div>
 
-        {/* User Profile matching Image 3: Trivendra Shukla, Super Admin */}
+        {/* User Profile matching active session */}
         <div className="relative">
           <button
             onClick={() => setProfileOpen(!profileOpen)}
             className="flex items-center gap-3 p-1.5 pr-2.5 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800/80 transition"
           >
             <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-md">
-              TS
+              {serverStore.currentUser?.name?.slice(0, 2).toUpperCase() || 'SA'}
             </div>
             <div className="text-left hidden sm:block">
               <span className="text-xs font-bold text-slate-800 dark:text-white block leading-tight">
-                Trivendra Shukla
+                {serverStore.currentUser?.name || 'Super Admin'}
               </span>
               <span className="text-[10px] text-slate-500 dark:text-slate-400 block leading-tight">
-                Super Admin
+                {serverStore.currentUser?.role || 'Super Admin'}
               </span>
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 mt-2 w-52 p-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl z-50 text-xs space-y-1 animate-in fade-in zoom-in-95">
+            <div className="absolute right-0 mt-2 w-56 p-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl z-50 text-xs space-y-1 animate-in fade-in zoom-in-95">
               <div className="p-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="font-bold text-slate-800 dark:text-white block">Trivendra Shukla</span>
-                <span className="text-[11px] text-slate-400 block">trivendra@yourcompany.com</span>
+                <span className="font-bold text-slate-800 dark:text-white block">
+                  {serverStore.currentUser?.name || 'Super Admin'}
+                </span>
+                <span className="text-[11px] text-slate-400 block truncate">
+                  {serverStore.currentUser?.email || 'sbkasaathilibrary@gmail.com'}
+                </span>
+                <span className="mt-1 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300">
+                  {serverStore.currentUser?.role || 'Super Admin'}
+                </span>
               </div>
               <button
                 onClick={() => {
                   serverStore.setTab('settings');
                   setProfileOpen(false);
                 }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-left"
               >
                 <User className="w-3.5 h-3.5" />
-                <span>Admin Profile & 2FA</span>
+                <span>Admin Profiles & Staff</span>
               </button>
               <button
                 onClick={() => {
                   serverStore.setTab('audit');
                   setProfileOpen(false);
                 }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-left"
               >
                 <Shield className="w-3.5 h-3.5" />
                 <span>Security Audit Logs</span>
               </button>
               <div className="border-t border-slate-100 dark:border-slate-800 pt-1">
                 <button
-                  onClick={() => setProfileOpen(false)}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 font-medium transition"
+                  onClick={async () => {
+                    setProfileOpen(false);
+                    await serverStore.logout();
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 font-medium transition text-left cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Sign Out</span>

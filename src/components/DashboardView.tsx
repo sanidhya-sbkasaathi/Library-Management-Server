@@ -132,7 +132,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCreateOrg })
                 <span>{copiedSql ? '✓ SQL Copied!' : 'Copy SQL Schema'}</span>
               </button>
               <a
-                href="https://supabase.com/dashboard/project/jsvevzzupajrgzxsmmyr/sql"
+                href={serverStore.getProjectRef() ? `https://supabase.com/dashboard/project/${serverStore.getProjectRef()}/sql` : "https://supabase.com/dashboard"}
                 target="_blank"
                 rel="noreferrer"
                 className="px-4 py-2 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 hover:bg-amber-100 transition"
