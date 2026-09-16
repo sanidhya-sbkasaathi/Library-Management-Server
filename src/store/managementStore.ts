@@ -1,4 +1,4 @@
-import { createClient } from '../utils/supabase/client';
+import { createClient, getSupabaseConfig } from '../utils/supabase/client';
 import { serverCrypto, SignedCredentialEnvelope } from '../utils/serverCrypto';
 import {
   Organization,
@@ -22,6 +22,10 @@ class ManagementStore {
   private static instance: ManagementStore;
   private subscribers: Array<() => void> = [];
   public supabase = createClient();
+
+  public getSupabaseConfig(): { url: string; key: string } {
+    return getSupabaseConfig();
+  }
 
   public organizations: Organization[] = [];
   public licenses: LicenseRecord[] = [];
