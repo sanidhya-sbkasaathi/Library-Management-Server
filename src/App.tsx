@@ -16,6 +16,7 @@ export function App() {
   const [, setTick] = useState(0);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     const unsub = serverStore.subscribe(() => {
@@ -54,7 +55,12 @@ export function App() {
       {/* 1. Left Sidebar Navigation matching Image 3 */}
       <Sidebar
         activeTab={currentTab}
-        onSelectTab={tab => serverStore.setTab(tab)}
+        onSelectTab={tab => {
+          serverStore.setTab(tab);
+          setMobileSidebarOpen(false);
+        }}
+        isMobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
       />
 
       {/* 2. Main Center Body */}
@@ -63,10 +69,11 @@ export function App() {
         <Header
           searchQuery={searchQuery}
           onSearchChange={q => setSearchQuery(q)}
+          onToggleMobileMenu={() => setMobileSidebarOpen(prev => !prev)}
         />
 
         {/* Scrollable Page Content */}
-        <main className="flex-1 overflow-y-auto px-8 py-6">
+        <main className="flex-1 overflow-y-auto px-3 sm:px-8 py-4 sm:py-6">
           <div className="max-w-7xl mx-auto">
             {renderActiveScreen()}
 

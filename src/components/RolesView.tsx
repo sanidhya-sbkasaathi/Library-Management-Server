@@ -16,13 +16,14 @@ import { serverStore } from '../store/managementStore';
 export const RolesView: React.FC = () => {
   const credentials = serverStore.credentials;
   const organizations = serverStore.organizations;
-  const [selectedOrgId, setSelectedOrgId] = useState(organizations[0]?.id || '');
+  const [selectedOrgId, setSelectedOrgId] = useState(organizations[0]?.id || 'ORG-ABC001');
   const [selectedRole, setSelectedRole] = useState('Librarian');
   const [assignedEmail, setAssignedEmail] = useState('');
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [generatedEnvelope, setGeneratedEnvelope] = useState<any | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // 5 System Roles definitions matching Screen 10
+  // System roles definition
   const systemRoles = [
     {
       title: 'Super Admin',
@@ -69,11 +70,16 @@ export const RolesView: React.FC = () => {
       assignedEmail.trim() || undefined
     );
     setGeneratedCode(cred.code);
+    setGeneratedEnvelope((cred as any).signedEnvelope || null);
     setAssignedEmail('');
   };
 
-  const copyCode = () => {
-    if (generatedCode) {
+  const copyEnvelope = () => {
+    if (generatedEnvelope) {
+      navigator.clipboard.writeText(JSON.stringify(generatedEnvelope, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } else if (generatedCode) {
       navigator.clipboard.writeText(generatedCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
@@ -151,25 +157,35 @@ export const RolesView: React.FC = () => {
         </div>
 
         {generatedCode && (
-          <div className="p-4 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 animate-in zoom-in-95">
-            <div className="space-y-1 text-center sm:text-left">
-              <span className="text-[10px] uppercase tracking-wider font-bold text-purple-600 dark:text-purple-400">
-                Generated One-Time Activation Token
-              </span>
-              <div className="font-mono text-lg font-extrabold text-purple-900 dark:text-purple-200">
-                {generatedCode}
+          <div className="p-5 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/80 space-y-3 animate-in zoom-in-95">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="space-y-1 text-center sm:text-left">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-purple-600 dark:text-purple-400">
+                  Ed25519 Digitally Signed Role Credential ({selectedRole})
+                </span>
+                <div className="font-mono text-base font-extrabold text-purple-900 dark:text-purple-200">
+                  {generatedCode}
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  Cryptographically signed with Management Server Private Key. Client Library App verifies offline.
+                </p>
               </div>
-              <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                Staff member will enter this code on desktop to create their password via Supabase Auth.
-              </p>
+              <button
+                onClick={copyEnvelope}
+                className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-purple-500/20 transition shrink-0"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{copied ? 'Copied to Clipboard!' : 'Copy Signed Role JSON'}</span>
+              </button>
             </div>
-            <button
-              onClick={copyCode}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow transition shrink-0"
-            >
-              <Copy className="w-3.5 h-3.5" />
-              <span>{copied ? 'Copied!' : 'Copy Code'}</span>
-            </button>
+            {generatedEnvelope && (
+              <textarea
+                readOnly
+                rows={4}
+                value={JSON.stringify(generatedEnvelope, null, 2)}
+                className="w-full font-mono text-[10px] p-2.5 rounded-xl bg-white dark:bg-slate-900 text-purple-900 dark:text-purple-300 border border-purple-200 dark:border-purple-900/60 select-all"
+              />
+            )}
           </div>
         )}
 

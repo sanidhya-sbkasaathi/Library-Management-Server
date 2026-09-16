@@ -56,11 +56,11 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
     }
   };
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !ownerName.trim() || !email.trim()) return;
 
-    const res = serverStore.createOrganization({
+    const res = await serverStore.createOrganization({
       name: name.trim(),
       ownerName: ownerName.trim(),
       email: email.trim(),
@@ -79,13 +79,27 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
     setCreatedResult(res);
   };
 
-  const copyCredential = () => {
-    if (createdResult?.initialCredential?.code) {
+  const copySignedCredential = () => {
+    if (createdResult?.signedEnvelope) {
+      navigator.clipboard.writeText(JSON.stringify(createdResult.signedEnvelope, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    }
+  };
+
+  const copySummary = () => {
+    if (createdResult) {
       navigator.clipboard.writeText(
+        `=== LIBRARY OWNER DIGITAL ONBOARDING CERTIFICATE ===\n` +
         `Organization: ${createdResult.org.name} (${createdResult.org.orgId})\n` +
+        `Library ID: ${createdResult.org.orgId}\n` +
         `License ID: ${createdResult.license.licenseId}\n` +
-        `One-Time Activation Code: ${createdResult.initialCredential.code}\n` +
-        `Expires: 24 Hours`
+        `Owner Secret: ${createdResult.ownerSecret || 'None'}\n` +
+        `One-Time Activation Code: ${createdResult.initialCredential?.code}\n` +
+        `Algorithm: Ed25519\n` +
+        `Digital Signature (64B): ${createdResult.signedEnvelope?.signature}\n\n` +
+        `SIGNED CREDENTIAL ENVELOPE (Paste into Library App):\n` +
+        JSON.stringify(createdResult.signedEnvelope, null, 2)
       );
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
@@ -106,7 +120,7 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
                 Create New Library Organization
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Main Management Server Provisioning Blueprint (Screen 4)
+                Ed25519 Digitally Signed Provisioning Authority (Screen 4 & Infographic Flow)
               </p>
             </div>
           </div>
@@ -121,23 +135,23 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5 text-xs">
           {createdResult ? (
-            /* Success Card */
-            <div className="space-y-5 py-4 animate-in zoom-in-95">
+            /* Success Card with Cryptographic Digital Certificate */
+            <div className="space-y-5 py-2 animate-in zoom-in-95">
               <div className="text-center space-y-2">
                 <div className="w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-sm">
                   <CheckCircle2 className="w-8 h-8" />
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Organization & License Provisioned Successfully!
+                  Ed25519 Signed Organization Provisioned!
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Customer can now install the desktop client and enter these credentials.
+                  Signed with Management Server Private Key 🔐. Client Library App verifies offline using Public Key 🔓.
                 </p>
               </div>
 
               <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3 font-mono">
                 <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-700">
-                  <span className="text-slate-500">Organization ID</span>
+                  <span className="text-slate-500">Library ID (Immutable)</span>
                   <span className="font-bold text-blue-600 dark:text-blue-400">
                     {createdResult.org.orgId}
                   </span>
@@ -149,28 +163,58 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
                   </span>
                 </div>
                 <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-700">
-                  <span className="text-slate-500">One-Time Activation Credential</span>
-                  <span className="font-bold text-purple-600 dark:text-purple-400 text-sm">
-                    {createdResult.initialCredential.code}
+                  <span className="text-slate-500">Owner Setup Secret</span>
+                  <span className="font-bold text-amber-600 dark:text-amber-400">
+                    {createdResult.ownerSecret}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-500">Digital Signature (Ed25519)</span>
+                  <span className="font-bold text-purple-600 dark:text-purple-400 text-[10px] truncate max-w-[280px]">
+                    {createdResult.signedEnvelope?.signature}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-[11px] text-slate-500">
                   <span>Device Limit: {createdResult.org.maxDevices} PCs</span>
-                  <span>Cloud DB: Ready (v014)</span>
+                  <span>Certificate Version: v1 (management-v1)</span>
                 </div>
               </div>
 
-              <div className="flex gap-3">
+              {/* Signed Envelope Raw Preview */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    Signed Credential Envelope (Paste in Library App Onboarding):
+                  </span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                    ✓ Canonical JSON + 64B Ed25519 Sig
+                  </span>
+                </div>
+                <textarea
+                  readOnly
+                  rows={5}
+                  value={JSON.stringify(createdResult.signedEnvelope, null, 2)}
+                  className="w-full font-mono text-[11px] p-3 rounded-xl bg-slate-50 dark:bg-slate-950 text-emerald-800 dark:text-emerald-400 border border-slate-200 dark:border-slate-700 select-all"
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
                 <button
-                  onClick={copyCredential}
+                  onClick={copySignedCredential}
                   className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl transition flex items-center justify-center gap-2 shadow-md shadow-blue-500/20"
                 >
                   <Copy className="w-4 h-4" />
-                  <span>{copied ? 'Copied to Clipboard!' : 'Copy Activation Details'}</span>
+                  <span>{copied ? 'Copied to Clipboard!' : 'Copy Signed Credential JSON'}</span>
+                </button>
+                <button
+                  onClick={copySummary}
+                  className="px-5 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-2xl transition flex items-center justify-center gap-1.5"
+                >
+                  <span>Copy All Details</span>
                 </button>
                 <button
                   onClick={onClose}
-                  className="px-6 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-2xl transition"
+                  className="px-6 py-3 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-bold rounded-2xl transition"
                 >
                   Done
                 </button>

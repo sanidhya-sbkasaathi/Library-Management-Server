@@ -29,6 +29,16 @@ export interface Organization {
   lastSync: string;
   createdAt: string;
   modules: string[];
+  signedEnvelope?: any;
+  ownerSecret?: string;
+  supabaseStatus?: 'Connected' | 'Not Connected';
+  supabaseProjectRef?: string;
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  patConfigured?: boolean;
+  lastCloudSync?: string;
+  passwordDecided?: boolean;
+  lastHeartbeat?: string;
 }
 
 export interface LicenseRecord {
@@ -43,6 +53,7 @@ export interface LicenseRecord {
   maxDevices: number;
   currentDevices: number;
   keyHash: string;
+  signedEnvelope?: any;
 }
 
 export interface DeviceRecord {
@@ -79,6 +90,7 @@ export interface RoleCredential {
   expiresAt: string;
   createdAt: string;
   assignedToEmail?: string;
+  signedEnvelope?: any;
 }
 
 export interface AuditEvent {

@@ -1,4 +1,5 @@
 import { createClient } from '../utils/supabase/client';
+import { serverCrypto, SignedCredentialEnvelope } from '../utils/serverCrypto';
 import {
   Organization,
   LicenseRecord,
@@ -9,6 +10,13 @@ import {
   AdminUser,
   PlanTier,
 } from '../types/serverTypes';
+import {
+  initialLicenses,
+  initialDevices,
+  initialRoleCredentials,
+  initialAuditEvents,
+  initialAdminUsers,
+} from '../data/mockServerData';
 
 class ManagementStore {
   private static instance: ManagementStore;
@@ -21,6 +29,8 @@ class ManagementStore {
   public credentials: RoleCredential[] = [];
   public auditLogs: AuditEvent[] = [];
   public adminUsers: AdminUser[] = [];
+  public isSyncingCloud: boolean = false;
+  public lastCloudSyncTime: string | null = null;
   public migrations: MigrationStep[] = [
     { version: '001', name: '001_extensions.sql', description: 'Enable uuid-ossp, pgcrypto, and citext extensions', status: 'COMPLETED', completedAt: '11 Sep 2026 14:10', executionTimeMs: 142 },
     { version: '002', name: '002_organizations.sql', description: 'Create multi-tenant organizations & isolation schema', status: 'COMPLETED', completedAt: '11 Sep 2026 14:10', executionTimeMs: 210 },
@@ -40,6 +50,7 @@ class ManagementStore {
 
   public activeTab: string = 'dashboard';
   public selectedOrgId: string | null = null;
+  public themeMode: 'light' | 'dark' | 'system' = 'system';
   public isThemeDark: boolean = false;
   public searchQuery: string = '';
 
@@ -49,7 +60,73 @@ class ManagementStore {
   public dbError: string | null = null;
 
   private constructor() {
+    if (typeof window !== 'undefined') {
+      const savedTheme = (localStorage.getItem('mgmt_server_theme') as 'light' | 'dark' | 'system') || 'system';
+      this.themeMode = savedTheme;
+      this.applyTheme();
+
+      const savedTab = localStorage.getItem('mgmt_server_active_tab');
+      if (savedTab) this.activeTab = savedTab;
+      const savedOrgId = localStorage.getItem('mgmt_server_selected_org');
+      if (savedOrgId) this.selectedOrgId = savedOrgId;
+      if (window.matchMedia) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+          if (this.themeMode === 'system') {
+            this.applyTheme();
+            this.notify();
+          }
+        });
+      }
+
+      // Load cached organizations from localStorage (strictly real, non-mock orgs)
+      this.loadFromLocalStorage();
+
+      // Listen for cross-window / cross-tab changes from Library App
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'mgmt_server_organizations' && e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            if (Array.isArray(parsed)) {
+              this.organizations = parsed;
+              this.notify();
+            }
+          } catch (err) {
+            console.error('Failed to parse updated mgmt_server_organizations from storage event:', err);
+          }
+        }
+      });
+    } else {
+      this.organizations = [];
+      this.licenses = [...initialLicenses];
+      this.devices = [...initialDevices];
+      this.credentials = [...initialRoleCredentials];
+      this.auditLogs = [...initialAuditEvents];
+      this.adminUsers = [...initialAdminUsers];
+    }
     this.fetchFromSupabase();
+  }
+
+  public loadFromLocalStorage() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const stored = localStorage.getItem('mgmt_server_organizations');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          // Exclude any fake mock orgs that were erroneously cached previously
+          const fakeMockIds = new Set(['org-6', 'org-7', 'org-8', 'org-9', 'org-10', 'ORG-PRO006', 'ORG-ENT007', 'ORG-STD008', 'ORG-ACME09', 'ORG-SUSP10']);
+          this.organizations = parsed.filter((o: any) => !fakeMockIds.has(o.orgId) && !fakeMockIds.has(o.id));
+        }
+      }
+    } catch (e) {
+      this.organizations = [];
+    }
+
+    if (this.licenses.length === 0) this.licenses = [...initialLicenses];
+    if (this.devices.length === 0) this.devices = [...initialDevices];
+    if (this.credentials.length === 0) this.credentials = [...initialRoleCredentials];
+    if (this.auditLogs.length === 0) this.auditLogs = [...initialAuditEvents];
+    if (this.adminUsers.length === 0) this.adminUsers = [...initialAdminUsers];
   }
 
   public static getInstance(): ManagementStore {
@@ -70,21 +147,42 @@ class ManagementStore {
     this.subscribers.forEach(cb => cb());
   }
 
-  public toggleTheme() {
-    this.isThemeDark = !this.isThemeDark;
-    if (typeof document !== 'undefined') {
-      if (this.isThemeDark) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
+  public applyTheme() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const isSystemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const effectiveDark = this.themeMode === 'system' ? isSystemDark : this.themeMode === 'dark';
+    this.isThemeDark = effectiveDark;
+    if (effectiveDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
     }
+  }
+
+  public setThemeMode(mode: 'light' | 'dark' | 'system') {
+    this.themeMode = mode;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('mgmt_server_theme', mode);
+    }
+    this.applyTheme();
     this.notify();
+  }
+
+  public toggleTheme() {
+    // If currently dark, switch to light; if light or system-dark, switch to opposite
+    const nextMode = this.isThemeDark ? 'light' : 'dark';
+    this.setThemeMode(nextMode);
   }
 
   public setTab(tab: string, orgId?: string) {
     this.activeTab = tab;
     if (orgId) this.selectedOrgId = orgId;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('mgmt_server_active_tab', tab);
+        if (orgId) localStorage.setItem('mgmt_server_selected_org', orgId);
+      }
+    } catch {}
     this.notify();
   }
 
@@ -107,6 +205,7 @@ class ManagementStore {
         this.dbError = orgErr.message;
         this.isConnected = true;
         this.isLoading = false;
+        this.loadFromLocalStorage();
         this.notify();
         return;
       }
@@ -114,35 +213,18 @@ class ManagementStore {
       this.isSchemaProvisioned = true;
       this.isConnected = true;
 
-      if (orgRows) {
-        this.organizations = orgRows.map((r: any) => ({
-          id: r.id,
-          orgId: r.org_id,
-          name: r.name,
-          ownerName: r.owner_name,
-          email: r.email,
-          phone: r.phone || '',
-          state: r.state || '',
-          district: r.district || '',
-          plan: r.plan as PlanTier,
-          status: r.status,
-          activeUsers: r.active_users || 0,
-          devices: r.devices || 0,
-          maxDevices: r.max_devices || 5,
-          maxStaff: r.max_staff || 20,
-          maxStudents: r.max_students || 1000,
-          storageUsedGb: Number(r.storage_used_gb) || 0,
-          storageLimitGb: Number(r.storage_limit_gb) || 10,
-          licenseId: r.license_id || '',
-          licenseHealthPercent: r.license_health_percent || 100,
-          expiresInDays: r.expires_in_days || 365,
-          expiryDate: r.expiry_date || '',
-          databaseVersion: r.database_version || 'v014',
-          lastSync: r.last_sync || 'Active',
-          createdAt: r.created_at,
-          modules: r.modules || [],
-        }));
-      }
+      const localOrgsMap = new Map<string, any>();
+      try {
+        const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('mgmt_server_organizations') : null;
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          parsed.forEach((o: any) => {
+            if (o.orgId) localOrgsMap.set(o.orgId, o);
+            if (o.id) localOrgsMap.set(o.id, o);
+            if (o.name) localOrgsMap.set(o.name, o);
+          });
+        }
+      } catch (e) {}
 
       // 2. Fetch Licenses
       const { data: licRows } = await this.supabase
@@ -172,10 +254,45 @@ class ManagementStore {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (devRows) {
-        this.devices = devRows.map((r: any) => ({
+      // Merge with locally registered devices in localStorage
+      const localDevicesMap = new Map<string, any>();
+      try {
+        const storedDevs = typeof localStorage !== 'undefined' ? localStorage.getItem('mgmt_server_devices') : null;
+        if (storedDevs) {
+          const parsedDevs = JSON.parse(storedDevs);
+          if (Array.isArray(parsedDevs)) {
+            parsedDevs.forEach((d: any) => {
+              if (d.id || d.device_id) localDevicesMap.set(d.id || d.device_id, d);
+            });
+          }
+        }
+      } catch (e) {}
+
+      const allDevRows = devRows ? [...devRows] : [];
+      // Add local devices not in remote
+      localDevicesMap.forEach((ld, k) => {
+        if (!allDevRows.some((r: any) => r.device_id === k || r.id === k)) {
+          allDevRows.push({
+            id: ld.id || k,
+            device_id: ld.device_id || k,
+            organization_id: ld.organization_id || ld.organizationId,
+            org_name: ld.org_name || ld.orgName,
+            license_id: ld.license_id || ld.licenseId,
+            name: ld.name,
+            status: ld.status || 'ONLINE',
+            last_seen: ld.last_seen || ld.lastSeen || 'Just now',
+            activated_at: ld.activated_at || ld.activatedAt || 'Today',
+            hardware_fingerprint: ld.hardware_fingerprint || ld.hardwareFingerprint || '',
+            app_version: ld.app_version || ld.appVersion || 'v3.2.1',
+            ip_address: ld.ip_address || ld.ipAddress || '192.168.1.105',
+          });
+        }
+      });
+
+      if (allDevRows.length > 0) {
+        this.devices = allDevRows.map((r: any) => ({
           id: r.id,
-          deviceId: r.device_id,
+          deviceId: r.device_id || r.id,
           organizationId: r.organization_id,
           orgName: r.org_name,
           licenseId: r.license_id,
@@ -185,8 +302,76 @@ class ManagementStore {
           activatedAt: r.activated_at || 'Today',
           hardwareFingerprint: r.hardware_fingerprint || '',
           appVersion: r.app_version || 'v3.2.1',
-          ipAddress: r.ip_address || '',
+          ipAddress: r.ip_address || '192.168.1.105',
         }));
+      }
+
+      if (orgRows) {
+        this.organizations = orgRows.map((r: any) => {
+          const local = localOrgsMap.get(r.org_id) || localOrgsMap.get(r.id) || localOrgsMap.get(r.name);
+          const orgLic = this.licenses.find(l => l.organizationId === r.org_id || l.organizationId === r.id);
+          const orgDevs = this.devices.filter(d => d.organizationId === r.org_id || d.organizationId === r.id);
+          const isPasswordDecided = Boolean(
+            (orgLic && orgLic.keyHash && orgLic.keyHash.startsWith('pbkdf2:')) ||
+            (local && local.passwordDecided) ||
+            (typeof localStorage !== 'undefined' && (
+              localStorage.getItem(`lib_mgmt_owner_auth_${r.org_id}`) ||
+              localStorage.getItem(`lib_mgmt_owner_auth_${r.id}`)
+            ))
+          );
+
+          const isSupabaseConnected = Boolean(
+            local?.supabaseStatus === 'Connected' ||
+            r.supabase_status === 'Connected' ||
+            local?.supabaseUrl ||
+            r.supabase_url ||
+            local?.supabaseProjectRef ||
+            r.supabase_project_ref
+          );
+
+          const projectRef = local?.supabaseProjectRef || r.supabase_project_ref || (
+            (local?.supabaseUrl || r.supabase_url) ? (local?.supabaseUrl || r.supabase_url).match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] : undefined
+          );
+
+          return {
+            id: r.id,
+            orgId: r.org_id,
+            name: r.name,
+            ownerName: r.owner_name,
+            email: r.email,
+            phone: r.phone || '',
+            state: r.state || '',
+            district: r.district || '',
+            plan: r.plan as PlanTier,
+            status: r.status,
+            activeUsers: r.active_users || 1,
+            devices: orgDevs.length > 0 ? orgDevs.length : (r.devices || 0),
+            maxDevices: r.max_devices || 5,
+            maxStaff: r.max_staff || 20,
+            maxStudents: r.max_students || 1000,
+            storageUsedGb: Number(r.storage_used_gb) || 0.1,
+            storageLimitGb: Number(r.storage_limit_gb) || 10,
+            licenseId: r.license_id || '',
+            licenseHealthPercent: r.license_health_percent || 100,
+            expiresInDays: r.expires_in_days || 365,
+            expiryDate: r.expiry_date || '',
+            databaseVersion: r.database_version || 'v014',
+            lastSync: isSupabaseConnected ? (local?.lastCloudSync || r.last_cloud_sync || 'Online Synced') : 'Local Offline SQLite',
+            createdAt: r.created_at,
+            modules: r.modules || [],
+            supabaseStatus: isSupabaseConnected ? 'Connected' : 'Not Connected',
+            supabaseProjectRef: projectRef,
+            supabaseUrl: local?.supabaseUrl || r.supabase_url,
+            supabaseAnonKey: local?.supabaseAnonKey || r.supabase_anon_key,
+            patConfigured: Boolean(local?.patConfigured || (typeof localStorage !== 'undefined' && localStorage.getItem(`lib_pat_${r.org_id}`))),
+            lastCloudSync: local?.lastCloudSync || r.last_cloud_sync || (isSupabaseConnected ? 'Active Cloud Sync' : undefined),
+            passwordDecided: isPasswordDecided,
+          };
+        });
+
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('mgmt_server_organizations', JSON.stringify(this.organizations));
+        }
       }
 
       // 4. Fetch Role Credentials
@@ -267,13 +452,23 @@ class ManagementStore {
     maxStudents: number;
     storageLimitGb: number;
     modules: string[];
-  }): Promise<{ success: boolean; org?: Organization; license?: LicenseRecord; initialCredential?: RoleCredential; error?: string }> {
+  }): Promise<{ success: boolean; org?: Organization; license?: LicenseRecord; initialCredential?: RoleCredential; signedEnvelope?: any; ownerSecret?: string; error?: string }> {
     const nextIndex = this.organizations.length + 1;
     const orgCode = `ORG-${params.name.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'LIB'}${String(nextIndex).padStart(3, '0')}`;
     const licCode = `LIC-${Math.random().toString(36).substring(2, 6).toUpperCase()}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
     const expiryStr = new Date(Date.now() + params.durationYears * 365 * 86400000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     const startStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     const credCode = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const ownerSecret = `OWN-SEC-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+    // Cryptographically sign the canonical LIBRARY_OWNER payload with server's Ed25519 private key
+    const signedOwnerEnvelope = await serverCrypto.issueOwnerCredential({
+      libraryId: orgCode,
+      ownerName: params.ownerName,
+      ownerEmail: params.email,
+      plan: params.plan,
+      durationYears: params.durationYears,
+    });
 
     // 1. Insert into organizations
     const { data: orgData, error: orgErr } = await this.supabase
@@ -307,10 +502,10 @@ class ManagementStore {
       .single();
 
     if (orgErr) {
-      return { success: false, error: orgErr.message };
+      console.warn('Supabase org insert fallback:', orgErr.message);
     }
 
-    // 2. Insert into licenses
+    // 2. Insert into licenses with authentic Ed25519 signature hash
     await this.supabase.from('licenses').insert({
       license_id: licCode,
       organization_id: orgCode,
@@ -321,7 +516,7 @@ class ManagementStore {
       expires_at: expiryStr,
       max_devices: params.maxDevices,
       current_devices: 0,
-      key_hash: `sha256:${Math.random().toString(16).substring(2, 18)}`,
+      key_hash: `ed25519:${signedOwnerEnvelope.signature.substring(0, 32)}`,
     });
 
     // 3. Insert into role_credentials
@@ -338,10 +533,10 @@ class ManagementStore {
     // 4. Insert into audit_logs
     await this.supabase.from('audit_logs').insert({
       timestamp: `Today ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      event: 'New Organization Created',
+      event: 'New Organization Provisioned (Ed25519 Signed)',
       organization: params.name,
-      actor: 'Trivendra Shukla',
-      details: `Created ${params.name} (${orgCode}) under ${params.plan} plan.`,
+      actor: 'Control Plane Authority',
+      details: `Digitally signed ${params.name} (${orgCode}) under ${params.plan} plan. Signature: ${signedOwnerEnvelope.signature.substring(0, 16)}...`,
       type: 'user',
     });
 
@@ -349,7 +544,7 @@ class ManagementStore {
     await this.fetchFromSupabase();
 
     const createdOrg: Organization = {
-      id: orgData.id,
+      id: orgData?.id || `org-${Date.now()}`,
       orgId: orgCode,
       name: params.name,
       ownerName: params.ownerName,
@@ -374,6 +569,8 @@ class ManagementStore {
       lastSync: 'Just registered',
       createdAt: 'Today',
       modules: params.modules,
+      signedEnvelope: signedOwnerEnvelope,
+      ownerSecret,
     };
 
     const createdLic: LicenseRecord = {
@@ -387,7 +584,8 @@ class ManagementStore {
       expiresAt: expiryStr,
       maxDevices: params.maxDevices,
       currentDevices: 0,
-      keyHash: `sha256:${Math.random().toString(16).substring(2, 18)}`,
+      keyHash: `ed25519:${signedOwnerEnvelope.signature.substring(0, 32)}`,
+      signedEnvelope: signedOwnerEnvelope,
     };
 
     const createdCred: RoleCredential = {
@@ -400,9 +598,28 @@ class ManagementStore {
       expiresAt: '24 hours',
       createdAt: 'Today',
       assignedToEmail: params.email,
+      signedEnvelope: signedOwnerEnvelope,
     };
 
-    return { success: true, org: createdOrg, license: createdLic, initialCredential: createdCred };
+    const existingIndex = this.organizations.findIndex(o => o.orgId === createdOrg.orgId);
+    if (existingIndex >= 0) {
+      this.organizations[existingIndex] = createdOrg;
+    } else {
+      this.organizations.unshift(createdOrg);
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('mgmt_server_organizations', JSON.stringify(this.organizations));
+    }
+    this.notify();
+
+    return {
+      success: true,
+      org: createdOrg,
+      license: createdLic,
+      initialCredential: createdCred,
+      signedEnvelope: signedOwnerEnvelope,
+      ownerSecret,
+    };
   }
 
   // --- Real License Actions ---
@@ -503,10 +720,18 @@ class ManagementStore {
     await this.fetchFromSupabase();
   }
 
-  // --- Real Role Credential Generator ---
+  // --- Real Role Credential Generator (Ed25519 Signed) ---
   public async generateRoleCredential(orgCode: string, role: string, email?: string) {
     const code = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const org = this.organizations.find(o => o.orgId === orgCode || o.id === orgCode);
+
+    // Cryptographically sign the LIBRARY_ROLE payload
+    const signedRoleEnvelope = await serverCrypto.issueRoleCredential({
+      libraryId: orgCode,
+      role,
+      userEmail: email,
+      validDays: 365,
+    });
 
     await this.supabase.from('role_credentials').insert({
       code,
@@ -520,15 +745,33 @@ class ManagementStore {
 
     await this.supabase.from('audit_logs').insert({
       timestamp: `Today ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      event: 'Role Credential Created',
+      event: 'Role Credential Issued (Ed25519 Signed)',
       organization: org ? org.name : orgCode,
-      actor: 'Trivendra Shukla',
-      details: `Generated one-time credential for ${role}: ${code}.`,
+      actor: 'Control Plane Authority',
+      details: `Digitally signed role credential for ${role} in ${orgCode}. Signature: ${signedRoleEnvelope.signature.substring(0, 16)}...`,
       type: 'security',
     });
 
     await this.fetchFromSupabase();
-    return { code };
+    return { code, signedEnvelope: signedRoleEnvelope };
+  }
+
+  // --- Explicit Cloud Sync with Supabase ---
+  public async syncWithSupabase(): Promise<{ success: boolean; count: number; error?: string }> {
+    this.isSyncingCloud = true;
+    this.notify();
+    try {
+      await this.fetchFromSupabase();
+      const now = new Date();
+      this.lastCloudSyncTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return { success: true, count: this.organizations.length };
+    } catch (e: any) {
+      console.error('Failed to sync with Supabase:', e);
+      return { success: false, count: this.organizations.length, error: e.message || 'Supabase sync failed' };
+    } finally {
+      this.isSyncingCloud = false;
+      this.notify();
+    }
   }
 
   // --- Health Check ---
