@@ -8,6 +8,8 @@ import {
   FileCheck2,
   ShieldCheck,
   Laptop,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { serverStore } from '../store/managementStore';
 import { PlanTier } from '../types/serverTypes';
@@ -32,6 +34,8 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
   const [storageLimitGb, setStorageLimitGb] = useState(10);
   const [createdResult, setCreatedResult] = useState<any | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [modules, setModules] = useState([
     'Student Management',
@@ -58,25 +62,39 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!name.trim() || !ownerName.trim() || !email.trim()) return;
 
-    const res = await serverStore.createOrganization({
-      name: name.trim(),
-      ownerName: ownerName.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
-      state,
-      district,
-      plan,
-      durationYears,
-      maxDevices,
-      maxStaff,
-      maxStudents,
-      storageLimitGb,
-      modules,
-    });
+    setIsSubmitting(true);
+    setErrorMessage(null);
 
-    setCreatedResult(res);
+    try {
+      const res = await serverStore.createOrganization({
+        name: name.trim(),
+        ownerName: ownerName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        state,
+        district,
+        plan,
+        durationYears,
+        maxDevices,
+        maxStaff,
+        maxStudents,
+        storageLimitGb,
+        modules,
+      });
+
+      if (res.success) {
+        setCreatedResult(res);
+      } else {
+        setErrorMessage(res.error || 'Failed to create organization. Please try again.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'An unexpected error occurred while creating the organization.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const copySignedCredential = () => {
@@ -134,6 +152,13 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5 text-xs">
+          {errorMessage && (
+            <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
           {createdResult ? (
             /* Success Card with Cryptographic Digital Certificate */
             <div className="space-y-5 py-2 animate-in zoom-in-95">
@@ -390,16 +415,27 @@ export const CreateOrgModal: React.FC<CreateOrgModalProps> = ({ isOpen, onClose 
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-md shadow-blue-500/20 transition flex items-center gap-2"
+                  disabled={isSubmitting}
+                  className="px-6 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-md shadow-blue-500/20 transition flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
-                  <Building2 className="w-4 h-4" />
-                  <span>Create Organization & License</span>
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Provisioning Organization...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Building2 className="w-4 h-4" />
+                      <span>Create Organization & License</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

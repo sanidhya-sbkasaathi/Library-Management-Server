@@ -156,6 +156,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ onOpenCrea
                 <th className="py-3 px-4 font-semibold">Org ID</th>
                 <th className="py-3 px-4 font-semibold">Plan</th>
                 <th className="py-3 px-4 font-semibold">Status</th>
+                <th className="py-3 px-4 font-semibold">Password State</th>
                 <th className="py-3 px-4 font-semibold">Cloud Sync (Supabase)</th>
                 <th className="py-3 px-4 font-semibold text-center">Devices</th>
                 <th className="py-3 px-4 font-semibold text-center">Active Users</th>
@@ -201,6 +202,19 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ onOpenCrea
                       <span className="w-1.5 h-1.5 rounded-full bg-current" />
                       {org.status}
                     </span>
+                  </td>
+                  <td className="py-3.5 px-4">
+                    {org.passwordDecided ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                        <span>Password Set</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+                        <Clock className="w-3 h-3 text-amber-500" />
+                        <span>Pending Setup</span>
+                      </span>
+                    )}
                   </td>
                   <td className="py-3.5 px-4">
                     {org.supabaseStatus === 'Connected' ? (

@@ -35,6 +35,7 @@ class ManagementStore {
   public adminUsers: AdminUser[] = [];
   public isSyncingCloud: boolean = false;
   public lastCloudSyncTime: string | null = null;
+  private isCreatingOrg: boolean = false;
   public migrations: MigrationStep[] = [
     { version: '001', name: '001_extensions.sql', description: 'Enable uuid-ossp, pgcrypto, and citext extensions', status: 'COMPLETED', completedAt: '11 Sep 2026 14:10', executionTimeMs: 142 },
     { version: '002', name: '002_organizations.sql', description: 'Create multi-tenant organizations & isolation schema', status: 'COMPLETED', completedAt: '11 Sep 2026 14:10', executionTimeMs: 210 },
@@ -567,7 +568,14 @@ class ManagementStore {
       }
 
       if (orgRows) {
-        this.organizations = orgRows.map((r: any) => {
+        const seenOrgIds = new Set<string>();
+        const mappedOrgs: Organization[] = [];
+
+        for (const r of orgRows) {
+          const orgIdentifier = r.org_id || r.id;
+          if (!orgIdentifier || seenOrgIds.has(orgIdentifier)) continue;
+          seenOrgIds.add(orgIdentifier);
+
           const local = localOrgsMap.get(r.org_id) || localOrgsMap.get(r.id) || localOrgsMap.get(r.name);
           const orgLic = this.licenses.find(l => l.organizationId === r.org_id || l.organizationId === r.id);
           const orgDevs = this.devices.filter(d => d.organizationId === r.org_id || d.organizationId === r.id);
@@ -593,7 +601,7 @@ class ManagementStore {
             (local?.supabaseUrl || r.supabase_url) ? (local?.supabaseUrl || r.supabase_url).match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] : undefined
           );
 
-          return {
+          mappedOrgs.push({
             id: r.id,
             orgId: r.org_id,
             name: r.name,
@@ -626,8 +634,10 @@ class ManagementStore {
             patConfigured: Boolean(local?.patConfigured || (typeof localStorage !== 'undefined' && localStorage.getItem(`lib_pat_${r.org_id}`))),
             lastCloudSync: local?.lastCloudSync || r.last_cloud_sync || (isSupabaseConnected ? 'Active Cloud Sync' : undefined),
             passwordDecided: isPasswordDecided,
-          };
-        });
+          });
+        }
+
+        this.organizations = mappedOrgs;
 
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem('mgmt_server_organizations', JSON.stringify(this.organizations));
@@ -713,173 +723,188 @@ class ManagementStore {
     storageLimitGb: number;
     modules: string[];
   }): Promise<{ success: boolean; org?: Organization; license?: LicenseRecord; initialCredential?: RoleCredential; signedEnvelope?: any; ownerSecret?: string; error?: string }> {
-    const nextIndex = this.organizations.length + 1;
-    const orgCode = `ORG-${params.name.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'LIB'}${String(nextIndex).padStart(3, '0')}`;
-    const licCode = `LIC-${Math.random().toString(36).substring(2, 6).toUpperCase()}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
-    const expiryStr = new Date(Date.now() + params.durationYears * 365 * 86400000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    const startStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    const credCode = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-    const ownerSecret = `OWN-SEC-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    if (this.isCreatingOrg) {
+      return { success: false, error: 'Organization provisioning is currently in progress. Please wait a moment.' };
+    }
+    this.isCreatingOrg = true;
 
-    // Cryptographically sign the canonical LIBRARY_OWNER payload with server's Ed25519 private key
-    const signedOwnerEnvelope = await serverCrypto.issueOwnerCredential({
-      libraryId: orgCode,
-      ownerName: params.ownerName,
-      ownerEmail: params.email,
-      plan: params.plan,
-      durationYears: params.durationYears,
-    });
+    try {
+      // Find a strictly unique next org code
+      const prefix = `ORG-${params.name.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'LIB'}`;
+      let nextIndex = this.organizations.length + 1;
+      let orgCode = `${prefix}${String(nextIndex).padStart(3, '0')}`;
+      while (this.organizations.some(o => o.orgId === orgCode)) {
+        nextIndex++;
+        orgCode = `${prefix}${String(nextIndex).padStart(3, '0')}`;
+      }
 
-    // 1. Insert into organizations
-    const { data: orgData, error: orgErr } = await this.supabase
-      .from('organizations')
-      .insert({
-        org_id: orgCode,
+      const licCode = `LIC-${Math.random().toString(36).substring(2, 6).toUpperCase()}${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+      const expiryStr = new Date(Date.now() + params.durationYears * 365 * 86400000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      const startStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      const credCode = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const ownerSecret = `OWN-SEC-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+      // Cryptographically sign the canonical LIBRARY_OWNER payload with server's Ed25519 private key
+      const signedOwnerEnvelope = await serverCrypto.issueOwnerCredential({
+        libraryId: orgCode,
+        ownerName: params.ownerName,
+        ownerEmail: params.email,
+        plan: params.plan,
+        durationYears: params.durationYears,
+      });
+
+      // 1. Insert into organizations
+      const { data: orgData, error: orgErr } = await this.supabase
+        .from('organizations')
+        .insert({
+          org_id: orgCode,
+          name: params.name,
+          owner_name: params.ownerName,
+          email: params.email,
+          phone: params.phone,
+          state: params.state,
+          district: params.district,
+          plan: params.plan,
+          status: 'ACTIVE',
+          active_users: 1,
+          devices: 0,
+          max_devices: params.maxDevices,
+          max_staff: params.maxStaff,
+          max_students: params.maxStudents,
+          storage_used_gb: 0.1,
+          storage_limit_gb: params.storageLimitGb,
+          license_id: licCode,
+          license_health_percent: 100,
+          expires_in_days: params.durationYears * 365,
+          expiry_date: expiryStr,
+          database_version: 'v014',
+          last_sync: 'Just registered',
+          modules: params.modules,
+        })
+        .select()
+        .single();
+
+      if (orgErr) {
+        console.warn('Supabase org insert fallback:', orgErr.message);
+      }
+
+      // 2. Insert into licenses with authentic Ed25519 signature hash
+      await this.supabase.from('licenses').insert({
+        license_id: licCode,
+        organization_id: orgCode,
+        org_name: params.name,
+        plan: params.plan,
+        status: 'ACTIVE',
+        start_at: startStr,
+        expires_at: expiryStr,
+        max_devices: params.maxDevices,
+        current_devices: 0,
+        key_hash: `ed25519:${signedOwnerEnvelope.signature.substring(0, 32)}`,
+      });
+
+      // 3. Insert into role_credentials
+      await this.supabase.from('role_credentials').insert({
+        code: credCode,
+        role: 'Super Admin',
+        organization_id: orgCode,
+        org_name: params.name,
+        status: 'UNUSED',
+        expires_at: '24 hours',
+        assigned_to_email: params.email,
+      });
+
+      // 4. Insert into audit_logs
+      await this.supabase.from('audit_logs').insert({
+        timestamp: `Today ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        event: 'New Organization Provisioned (Ed25519 Signed)',
+        organization: params.name,
+        actor: 'Control Plane Authority',
+        details: `Digitally signed ${params.name} (${orgCode}) under ${params.plan} plan. Signature: ${signedOwnerEnvelope.signature.substring(0, 16)}...`,
+        type: 'user',
+      });
+
+      const createdOrg: Organization = {
+        id: orgData?.id || `org-${Date.now()}`,
+        orgId: orgCode,
         name: params.name,
-        owner_name: params.ownerName,
+        ownerName: params.ownerName,
         email: params.email,
         phone: params.phone,
         state: params.state,
         district: params.district,
         plan: params.plan,
         status: 'ACTIVE',
-        active_users: 1,
+        activeUsers: 1,
         devices: 0,
-        max_devices: params.maxDevices,
-        max_staff: params.maxStaff,
-        max_students: params.maxStudents,
-        storage_used_gb: 0.1,
-        storage_limit_gb: params.storageLimitGb,
-        license_id: licCode,
-        license_health_percent: 100,
-        expires_in_days: params.durationYears * 365,
-        expiry_date: expiryStr,
-        database_version: 'v014',
-        last_sync: 'Just registered',
+        maxDevices: params.maxDevices,
+        maxStaff: params.maxStaff,
+        maxStudents: params.maxStudents,
+        storageUsedGb: 0.1,
+        storageLimitGb: params.storageLimitGb,
+        licenseId: licCode,
+        licenseHealthPercent: 100,
+        expiresInDays: params.durationYears * 365,
+        expiryDate: expiryStr,
+        databaseVersion: 'v014',
+        lastSync: 'Just registered',
+        createdAt: 'Today',
         modules: params.modules,
-      })
-      .select()
-      .single();
+        signedEnvelope: signedOwnerEnvelope,
+        ownerSecret,
+      };
 
-    if (orgErr) {
-      console.warn('Supabase org insert fallback:', orgErr.message);
+      const createdLic: LicenseRecord = {
+        id: `lic-${Date.now()}`,
+        licenseId: licCode,
+        organizationId: orgCode,
+        orgName: params.name,
+        plan: params.plan,
+        status: 'ACTIVE',
+        startAt: startStr,
+        expiresAt: expiryStr,
+        maxDevices: params.maxDevices,
+        currentDevices: 0,
+        keyHash: `ed25519:${signedOwnerEnvelope.signature.substring(0, 32)}`,
+        signedEnvelope: signedOwnerEnvelope,
+      };
+
+      const createdCred: RoleCredential = {
+        id: `inv-${Date.now()}`,
+        code: credCode,
+        role: 'Super Admin',
+        organizationId: orgCode,
+        orgName: params.name,
+        status: 'UNUSED',
+        expiresAt: '24 hours',
+        createdAt: 'Today',
+        assignedToEmail: params.email,
+        signedEnvelope: signedOwnerEnvelope,
+      };
+
+      // In-memory update with deduplication
+      const existingIndex = this.organizations.findIndex(o => o.orgId === createdOrg.orgId || o.id === createdOrg.id);
+      if (existingIndex >= 0) {
+        this.organizations[existingIndex] = createdOrg;
+      } else {
+        this.organizations.unshift(createdOrg);
+      }
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('mgmt_server_organizations', JSON.stringify(this.organizations));
+      }
+      this.notify();
+
+      return {
+        success: true,
+        org: createdOrg,
+        license: createdLic,
+        initialCredential: createdCred,
+        signedEnvelope: signedOwnerEnvelope,
+        ownerSecret,
+      };
+    } finally {
+      this.isCreatingOrg = false;
     }
-
-    // 2. Insert into licenses with authentic Ed25519 signature hash
-    await this.supabase.from('licenses').insert({
-      license_id: licCode,
-      organization_id: orgCode,
-      org_name: params.name,
-      plan: params.plan,
-      status: 'ACTIVE',
-      start_at: startStr,
-      expires_at: expiryStr,
-      max_devices: params.maxDevices,
-      current_devices: 0,
-      key_hash: `ed25519:${signedOwnerEnvelope.signature.substring(0, 32)}`,
-    });
-
-    // 3. Insert into role_credentials
-    await this.supabase.from('role_credentials').insert({
-      code: credCode,
-      role: 'Super Admin',
-      organization_id: orgCode,
-      org_name: params.name,
-      status: 'UNUSED',
-      expires_at: '24 hours',
-      assigned_to_email: params.email,
-    });
-
-    // 4. Insert into audit_logs
-    await this.supabase.from('audit_logs').insert({
-      timestamp: `Today ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      event: 'New Organization Provisioned (Ed25519 Signed)',
-      organization: params.name,
-      actor: 'Control Plane Authority',
-      details: `Digitally signed ${params.name} (${orgCode}) under ${params.plan} plan. Signature: ${signedOwnerEnvelope.signature.substring(0, 16)}...`,
-      type: 'user',
-    });
-
-    // Refresh store from database
-    await this.fetchFromSupabase();
-
-    const createdOrg: Organization = {
-      id: orgData?.id || `org-${Date.now()}`,
-      orgId: orgCode,
-      name: params.name,
-      ownerName: params.ownerName,
-      email: params.email,
-      phone: params.phone,
-      state: params.state,
-      district: params.district,
-      plan: params.plan,
-      status: 'ACTIVE',
-      activeUsers: 1,
-      devices: 0,
-      maxDevices: params.maxDevices,
-      maxStaff: params.maxStaff,
-      maxStudents: params.maxStudents,
-      storageUsedGb: 0.1,
-      storageLimitGb: params.storageLimitGb,
-      licenseId: licCode,
-      licenseHealthPercent: 100,
-      expiresInDays: params.durationYears * 365,
-      expiryDate: expiryStr,
-      databaseVersion: 'v014',
-      lastSync: 'Just registered',
-      createdAt: 'Today',
-      modules: params.modules,
-      signedEnvelope: signedOwnerEnvelope,
-      ownerSecret,
-    };
-
-    const createdLic: LicenseRecord = {
-      id: `lic-${Date.now()}`,
-      licenseId: licCode,
-      organizationId: orgCode,
-      orgName: params.name,
-      plan: params.plan,
-      status: 'ACTIVE',
-      startAt: startStr,
-      expiresAt: expiryStr,
-      maxDevices: params.maxDevices,
-      currentDevices: 0,
-      keyHash: `ed25519:${signedOwnerEnvelope.signature.substring(0, 32)}`,
-      signedEnvelope: signedOwnerEnvelope,
-    };
-
-    const createdCred: RoleCredential = {
-      id: `inv-${Date.now()}`,
-      code: credCode,
-      role: 'Super Admin',
-      organizationId: orgCode,
-      orgName: params.name,
-      status: 'UNUSED',
-      expiresAt: '24 hours',
-      createdAt: 'Today',
-      assignedToEmail: params.email,
-      signedEnvelope: signedOwnerEnvelope,
-    };
-
-    const existingIndex = this.organizations.findIndex(o => o.orgId === createdOrg.orgId);
-    if (existingIndex >= 0) {
-      this.organizations[existingIndex] = createdOrg;
-    } else {
-      this.organizations.unshift(createdOrg);
-    }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('mgmt_server_organizations', JSON.stringify(this.organizations));
-    }
-    this.notify();
-
-    return {
-      success: true,
-      org: createdOrg,
-      license: createdLic,
-      initialCredential: createdCred,
-      signedEnvelope: signedOwnerEnvelope,
-      ownerSecret,
-    };
   }
 
   // --- Real License Actions ---

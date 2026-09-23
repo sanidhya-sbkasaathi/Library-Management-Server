@@ -1,0 +1,192 @@
+/**
+ * Unified Production-Grade API Console Logger & Fetch Interceptor
+ * Intercepts all outgoing API calls for Central Management Server
+ * and logs rich, colorful, collapsible badges with execution latency, request payload,
+ * response status, and error diagnostics directly in the browser DevTools console.
+ */
+
+const METHOD_COLORS: Record<string, string> = {
+  GET: 'background: #0284c7; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;',
+  POST: 'background: #16a34a; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;',
+  PUT: 'background: #d97706; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;',
+  PATCH: 'background: #ea580c; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;',
+  DELETE: 'background: #dc2626; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;',
+  OPTIONS: 'background: #64748b; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;',
+};
+
+const getStatusStyle = (status: number): string => {
+  if (status >= 200 && status < 300) {
+    return 'background: #15803d; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;';
+  }
+  if (status >= 300 && status < 400) {
+    return 'background: #0369a1; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;';
+  }
+  if (status >= 400 && status < 500) {
+    return 'background: #b45309; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;';
+  }
+  return 'background: #b91c1c; color: #ffffff; font-weight: bold; border-radius: 4px; padding: 2px 6px;';
+};
+
+export class ApiLogger {
+  private static isInitialized = false;
+
+  public static logRequest(method: string, url: string, body?: any, headers?: any) {
+    const timeStr = new Date().toLocaleTimeString();
+    const methodStyle = METHOD_COLORS[method.toUpperCase()] || 'background: #475569; color: #fff; padding: 2px 6px; border-radius: 4px;';
+    const tagStyle = 'background: #0f172a; color: #38bdf8; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid #1e293b;';
+
+    console.groupCollapsed(
+      `%c⚡ MGMT API REQ%c %c${method.toUpperCase()}%c ${url} %c(${timeStr})`,
+      tagStyle,
+      '',
+      methodStyle,
+      'color: #94a3b8; font-weight: 500;',
+      'color: #64748b; font-size: 11px;'
+    );
+    if (headers) console.log('%cHeaders:', 'color: #38bdf8; font-weight: bold;', headers);
+    if (body) console.log('%cPayload:', 'color: #34d399; font-weight: bold;', body);
+    console.groupEnd();
+  }
+
+  public static logResponse(method: string, url: string, status: number, statusText: string, data: any, durationMs: number) {
+    const safeMethod = String(method || 'GET').toUpperCase();
+    const statusStyle = getStatusStyle(status);
+    const methodStyle = METHOD_COLORS[safeMethod] || 'background: #475569; color: #fff; padding: 2px 6px; border-radius: 4px;';
+    const tagStyle = status < 400
+      ? 'background: #064e3b; color: #34d399; font-weight: 600; padding: 2px 6px; border-radius: 4px;'
+      : 'background: #7f1d1d; color: #f87171; font-weight: 600; padding: 2px 6px; border-radius: 4px;';
+
+    console.groupCollapsed(
+      `%c${status < 400 ? '✓ MGMT API RES' : '✕ MGMT API RES'}%c %c${method.toUpperCase()}%c %c${status} ${statusText || ''}%c ${url} %c(+${durationMs}ms)`,
+      tagStyle,
+      '',
+      methodStyle,
+      '',
+      statusStyle,
+      'color: #94a3b8; font-weight: 500;',
+      'color: #a78bfa; font-weight: bold;'
+    );
+    if (status >= 400) {
+      console.warn(`%c⚠️ HTTP ${status} Error Response:`, 'color: #f59e0b; font-weight: bold;', data);
+    } else {
+      console.log('%cResponse Body:', 'color: #38bdf8; font-weight: bold;', data);
+    }
+    console.groupEnd();
+  }
+
+  public static logError(method: string, url: string, error: any, durationMs: number) {
+    const methodStyle = METHOD_COLORS[method.toUpperCase()] || 'background: #475569; color: #fff; padding: 2px 6px; border-radius: 4px;';
+    const tagStyle = 'background: #881337; color: #fda4af; font-weight: 600; padding: 2px 6px; border-radius: 4px;';
+
+    console.group(
+      `%c⚠️ MGMT API NET ERR%c %c${method.toUpperCase()}%c ${url} %c(+${durationMs}ms)`,
+      tagStyle,
+      '',
+      methodStyle,
+      'color: #f43f5e; font-weight: bold;',
+      'color: #f43f5e; font-size: 11px;'
+    );
+    console.error('Network / Fetch Exception:', error);
+    console.groupEnd();
+  }
+
+  public static initGlobalInterceptor() {
+    if (typeof window === 'undefined' || this.isInitialized) return;
+    this.isInitialized = true;
+
+    const originalFetch = window.fetch;
+
+    window.fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (url.includes('/@vite/') || url.includes('/@fs/') || url.includes('__vite_ping') || url.endsWith('.tsx') || url.endsWith('.ts') || url.endsWith('.css')) {
+        return originalFetch.apply(this, [input as any, init]);
+      }
+
+      const method = (init?.method || (typeof input === 'object' && 'method' in input ? input.method : 'GET') || 'GET').toUpperCase();
+      const startTime = performance.now();
+
+      let parsedBody: any = undefined;
+      if (init?.body) {
+        if (typeof init.body === 'string') {
+          try {
+            parsedBody = JSON.parse(init.body);
+          } catch {
+            parsedBody = init.body;
+          }
+        } else {
+          parsedBody = '[Binary/FormData]';
+        }
+      }
+
+      let headerSnapshot: Record<string, string> | undefined = undefined;
+      if (init?.headers) {
+        if (init.headers instanceof Headers) {
+          headerSnapshot = {};
+          init.headers.forEach((v, k) => {
+            headerSnapshot![k] = k.toLowerCase().includes('authorization') || k.toLowerCase().includes('apikey')
+              ? `${v.substring(0, 12)}...`
+              : v;
+          });
+        } else if (typeof init.headers === 'object') {
+          headerSnapshot = {};
+          for (const [k, v] of Object.entries(init.headers)) {
+            headerSnapshot[k] = k.toLowerCase().includes('authorization') || k.toLowerCase().includes('apikey')
+              ? `${String(v).substring(0, 12)}...`
+              : String(v);
+          }
+        }
+      }
+
+      ApiLogger.logRequest(method, url, parsedBody, headerSnapshot);
+
+      try {
+        const response = await originalFetch.apply(this, [input as any, init]);
+        const durationMs = Math.round(performance.now() - startTime);
+
+        try {
+          const clone = response.clone();
+          const contentType = clone.headers.get('content-type') || '';
+
+          if (contentType.includes('application/json')) {
+            clone.json().then((json) => {
+              ApiLogger.logResponse(method, url, response.status, response.statusText, json, durationMs);
+            }).catch(() => {
+              ApiLogger.logResponse(method, url, response.status, response.statusText, '[Empty/Stream Response]', durationMs);
+            });
+          } else {
+            clone.text().then((text) => {
+              const preview = text.length > 500 ? text.substring(0, 500) + '... (truncated)' : text;
+              ApiLogger.logResponse(method, url, response.status, response.statusText, preview || '[Empty]', durationMs);
+            }).catch(() => {
+              ApiLogger.logResponse(method, url, response.status, response.statusText, '[Non-text Response]', durationMs);
+            });
+          }
+        } catch {
+          ApiLogger.logResponse(method, url, response.status, response.statusText, '[Stream Read Skipped]', durationMs);
+        }
+
+        return response;
+      } catch (err: any) {
+        const durationMs = Math.round(performance.now() - startTime);
+        ApiLogger.logError(method, url, err, durationMs);
+        throw err;
+      }
+    };
+
+    console.log(
+      '%c[Management Server API Logger]%c Interceptor active. All Supabase and backend API traffic is logged.',
+      'background: #0284c7; color: #fff; font-weight: bold; padding: 2px 8px; border-radius: 4px;',
+      'color: #38bdf8;'
+    );
+  }
+}
+
+export const logApiRequest = ApiLogger.logRequest;
+export const logApiResponse = ApiLogger.logResponse;
+export const logApiError = ApiLogger.logError;
+export const initGlobalApiLogger = ApiLogger.initGlobalInterceptor;

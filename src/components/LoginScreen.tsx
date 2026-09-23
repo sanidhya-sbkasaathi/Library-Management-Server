@@ -7,7 +7,6 @@ import {
   EyeOff,
   ArrowRight,
   Database,
-  Sparkles,
   KeyRound,
   CheckCircle2,
   AlertCircle,
@@ -17,8 +16,8 @@ import {
 import { serverStore } from '../store/managementStore';
 
 export const LoginScreen: React.FC = () => {
-  const [email, setEmail] = useState('sbkasaathilibrary@gmail.com');
-  const [password, setPassword] = useState('library@1299');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -38,12 +37,6 @@ export const LoginScreen: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleQuickFill = (quickEmail: string, quickPass: string) => {
-    setEmail(quickEmail);
-    setPassword(quickPass);
-    setErrorMessage(null);
   };
 
   return (
@@ -70,26 +63,6 @@ export const LoginScreen: React.FC = () => {
 
         {/* Form Container */}
         <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/80 border border-slate-800 backdrop-blur-xl shadow-2xl space-y-5">
-          {/* Quick Super Admin Credentials Helper */}
-          <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/25 space-y-2 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-blue-400 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" /> Super Admin Credentials
-              </span>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('sbkasaathilibrary@gmail.com', 'library@1299')}
-                className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
-              >
-                Auto Fill
-              </button>
-            </div>
-            <div className="text-[11px] text-slate-300 space-y-0.5 font-mono">
-              <div>Email: <span className="text-white font-bold">sbkasaathilibrary@gmail.com</span></div>
-              <div>Password: <span className="text-white font-bold">library@1299</span></div>
-            </div>
-          </div>
-
           {/* Error Alert */}
           {errorMessage && (
             <div className="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2 animate-in fade-in">
