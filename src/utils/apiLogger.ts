@@ -91,8 +91,8 @@ export class ApiLogger {
   }
 
   public static initGlobalInterceptor() {
-    if (typeof window === 'undefined' || this.isInitialized) return;
-    this.isInitialized = true;
+    if (typeof window === 'undefined' || ApiLogger.isInitialized) return;
+    ApiLogger.isInitialized = true;
 
     const originalFetch = window.fetch;
 
@@ -186,7 +186,7 @@ export class ApiLogger {
   }
 }
 
-export const logApiRequest = ApiLogger.logRequest;
-export const logApiResponse = ApiLogger.logResponse;
-export const logApiError = ApiLogger.logError;
-export const initGlobalApiLogger = ApiLogger.initGlobalInterceptor;
+export const logApiRequest = (method: string, url: string, body?: any, headers?: any) => ApiLogger.logRequest(method, url, body, headers);
+export const logApiResponse = (method: string, url: string, status: number, statusText: string, data: any, durationMs: number) => ApiLogger.logResponse(method, url, status, statusText, data, durationMs);
+export const logApiError = (method: string, url: string, error: any, durationMs: number) => ApiLogger.logError(method, url, error, durationMs);
+export const initGlobalApiLogger = () => ApiLogger.initGlobalInterceptor();
